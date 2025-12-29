@@ -27,7 +27,7 @@ data class Assignment(
     val title: String,
     val description: String = "",
     val dueDate: Long,            // Unix timestamp
-    val priority: Int = 1,        // 1=Low, 2=Medium, 3=High, 4=Critical
+    val priority: Int ,        // 1=Low, 2=Medium, 3=High, 4=Critical
     val estimatedTimeHours: Int = 2,
     val status: String = "pending", // pending, in_progress, completed, overdue
     val completionDate: Long? = null,
@@ -118,5 +118,11 @@ data class Assignment(
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
         return calendar.timeInMillis
+    }
+
+    // In your Assignment entity class
+    fun getFormattedDueDate(): String {
+        val sdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+        return sdf.format(Date(dueDate))
     }
 }

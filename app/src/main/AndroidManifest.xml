@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
         android:name=".UniTrackApplication"
         android:allowBackup="true"
@@ -11,6 +15,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.UniTrack"
         tools:targetApi="31">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -21,6 +26,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-    </application>
 
+        <!-- Add notification service receiver -->
+        <receiver
+            android:name=".services.LectureNotificationService"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="SCHEDULE_LECTURE_NOTIFICATIONS" />
+                <action android:name="LECTURE_REMINDER" />
+            </intent-filter>
+        </receiver>
+    </application>
 </manifest>

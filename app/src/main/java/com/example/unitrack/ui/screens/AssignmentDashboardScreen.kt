@@ -13,7 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector  // ADD THIS IMPORT
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,7 +39,8 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
             AppDatabase.getDatabase(context).userDao(),
             AppDatabase.getDatabase(context).semesterDao(),
             AppDatabase.getDatabase(context).subjectDao(),
-            AppDatabase.getDatabase(context).assignmentDao()
+            AppDatabase.getDatabase(context).assignmentDao(),
+            AppDatabase.getDatabase(context).lectureDao()
         )
     }
 
@@ -51,7 +52,7 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
         factory = SemesterViewModelFactory(repository)
     )
 
-    val allPendingAssignments by assignmentViewModel.getAllPendingAssignments().collectAsState(emptyList())
+    val allPendingAssignments by assignmentViewModel.getAssignmentsByUser(userId).collectAsState(emptyList())
     val semesters by semesterViewModel.getSemestersByUser(userId).collectAsState(emptyList())
 
     val coroutineScope = rememberCoroutineScope()
@@ -60,7 +61,22 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
     var upcomingAssignments by remember { mutableStateOf<List<com.example.unitrack.data.models.Assignment>>(emptyList()) }
     var overdueAssignments by remember { mutableStateOf<List<com.example.unitrack.data.models.Assignment>>(emptyList()) }
     var showFilterDialog by remember { mutableStateOf(false) }
-    var selectedFilter by remember { mutableStateOf("all") } // all, today, week, month, overdue
+    var selectedFilter by remember { mutableStateOf("all") }
+
+    // Calculate assignments based on filter
+    val filteredAssignments = remember(allPendingAssignments, selectedFilter) {
+        when (selectedFilter) {
+            "overdue" -> allPendingAssignments.filter { it.isOverdue() }
+            "today" -> allPendingAssignments.filter { it.isDueToday() }
+            "week" -> allPendingAssignments.filter {
+                !it.isOverdue() && it.daysRemaining() in 0..7
+            }
+            "month" -> allPendingAssignments.filter {
+                !it.isOverdue() && it.daysRemaining() in 0..30
+            }
+            else -> allPendingAssignments // "all"
+        }
+    }
 
     LaunchedEffect(allPendingAssignments) {
         coroutineScope.launch {
@@ -77,7 +93,7 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                     Column {
                         Text("Assignment Dashboard")
                         Text(
-                            text = "${allPendingAssignments.size} pending assignments",
+                            text = "${filteredAssignments.size} assignments",
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -88,8 +104,19 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showFilterDialog = true }) {
-                        Icon(Icons.Default.FilterList, contentDescription = "Filter")
+                    // Show filter icon with badge if filter is active
+                    BadgedBox(
+                        badge = {
+                            if (selectedFilter != "all") {
+                                Badge {
+                                    Text(selectedFilter.take(1).uppercase())
+                                }
+                            }
+                        }
+                    ) {
+                        IconButton(onClick = { showFilterDialog = true }) {
+                            Icon(Icons.Default.FilterList, contentDescription = "Filter")
+                        }
                     }
                 }
             )
@@ -100,16 +127,22 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Summary Stats Cards
+            // Summary Stats Cards - Updated to use filtered assignments
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val filteredOverdue = filteredAssignments.count { it.isOverdue() }
+                val filteredToday = filteredAssignments.count { it.isDueToday() && !it.isOverdue() }
+                val filteredWeek = filteredAssignments.count {
+                    !it.isOverdue() && !it.isDueToday() && it.daysRemaining() in 0..7
+                }
+
                 SummaryCard(
                     title = "Overdue",
-                    count = overdueAssignments.size,
+                    count = filteredOverdue,
                     color = MaterialTheme.colorScheme.error,
                     icon = Icons.Default.Warning,
                     modifier = Modifier.weight(1f)
@@ -117,7 +150,7 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
 
                 SummaryCard(
                     title = "Today",
-                    count = todayAssignments.size,
+                    count = filteredToday,
                     color = Color(0xFFFF9800),
                     icon = Icons.Default.Today,
                     modifier = Modifier.weight(1f)
@@ -125,14 +158,14 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
 
                 SummaryCard(
                     title = "This Week",
-                    count = upcomingAssignments.size,
+                    count = filteredWeek,
                     color = MaterialTheme.colorScheme.primary,
                     icon = Icons.Default.CalendarViewWeek,
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            // Quick Stats
+            // Quick Stats - Updated to use filtered assignments
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -148,26 +181,26 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                     horizontalArrangement = Arrangement.SpaceAround
                 ) {
                     StatItem(
-                        value = allPendingAssignments.size.toString(),
-                        label = "Total Pending",
+                        value = filteredAssignments.size.toString(),
+                        label = "Total",
                         icon = Icons.Default.Assignment
                     )
 
                     StatItem(
-                        value = calculateAvgTimeRemaining(allPendingAssignments),
+                        value = calculateAvgTimeRemaining(filteredAssignments),
                         label = "Avg Time Left",
                         icon = Icons.Default.Schedule
                     )
 
                     StatItem(
-                        value = "${calculateCompletionRate(allPendingAssignments)}%",
+                        value = calculateCompletionRate(filteredAssignments),
                         label = "On Track",
                         icon = Icons.Default.TrendingUp
                     )
                 }
             }
 
-            if (allPendingAssignments.isEmpty()) {
+            if (filteredAssignments.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -176,34 +209,56 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Default.AssignmentTurnedIn,
-                            contentDescription = "No assignments",
+                            Icons.Default.FilterAlt,
+                            contentDescription = "No filtered assignments",
                             modifier = Modifier.size(64.dp),
                             tint = MaterialTheme.colorScheme.outline
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "No pending assignments",
+                            text = when (selectedFilter) {
+                                "overdue" -> "No overdue assignments"
+                                "today" -> "No assignments due today"
+                                "week" -> "No assignments due this week"
+                                "month" -> "No assignments due this month"
+                                else -> "No pending assignments"
+                            },
                             style = MaterialTheme.typography.headlineSmall
                         )
                         Text(
-                            text = "Great job! You're all caught up.",
+                            text = when (selectedFilter) {
+                                "overdue" -> "Great! You have no overdue assignments."
+                                "today" -> "No assignments are due today."
+                                "week" -> "No assignments due within the next 7 days."
+                                "month" -> "No assignments due within the next 30 days."
+                                else -> "Great job! You're all caught up."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(top = 8.dp)
                         )
-                        Button(
-                            onClick = {
-                                // Navigate to subjects to add assignments
-                                if (semesters.isNotEmpty()) {
-                                    val latestSemester = semesters.maxByOrNull { it.createdAt }
-                                    latestSemester?.let {
-                                        navController.navigate("subjects/${it.id}")
+                        if (selectedFilter != "all") {
+                            Button(
+                                onClick = {
+                                    selectedFilter = "all"
+                                },
+                                modifier = Modifier.padding(top = 16.dp)
+                            ) {
+                                Text("Show All Assignments")
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    if (semesters.isNotEmpty()) {
+                                        val latestSemester = semesters.maxByOrNull { it.createdAt }
+                                        latestSemester?.let {
+                                            navController.navigate("subjects/${it.id}")
+                                        }
                                     }
-                                }
-                            },
-                            modifier = Modifier.padding(top = 16.dp)
-                        ) {
-                            Text("Add New Assignment")
+                                },
+                                modifier = Modifier.padding(top = 16.dp)
+                            ) {
+                                Text("Add New Assignment")
+                            }
                         }
                     }
                 }
@@ -214,16 +269,26 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Show filtered assignments in appropriate sections
+                    val overdue = filteredAssignments.filter { it.isOverdue() }
+                    val today = filteredAssignments.filter { it.isDueToday() && !it.isOverdue() }
+                    val upcoming = filteredAssignments.filter {
+                        !it.isOverdue() && !it.isDueToday() && it.daysRemaining() in 0..7
+                    }
+                    val future = filteredAssignments.filter {
+                        !it.isOverdue() && !it.isDueToday() && it.daysRemaining() > 7
+                    }
+
                     // Overdue Section
-                    if (overdueAssignments.isNotEmpty()) {
+                    if (overdue.isNotEmpty()) {
                         item {
                             SectionHeader(
                                 title = "⚠️ OVERDUE ASSIGNMENTS",
-                                count = overdueAssignments.size,
+                                count = overdue.size,
                                 color = MaterialTheme.colorScheme.error
                             )
                         }
-                        items(overdueAssignments) { assignment ->
+                        items(overdue) { assignment ->
                             DashboardAssignmentCard(
                                 assignment = assignment,
                                 onClick = {
@@ -234,15 +299,15 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                     }
 
                     // Today's Assignments
-                    if (todayAssignments.isNotEmpty()) {
+                    if (today.isNotEmpty()) {
                         item {
                             SectionHeader(
                                 title = "📅 TODAY'S ASSIGNMENTS",
-                                count = todayAssignments.size,
+                                count = today.size,
                                 color = Color(0xFFFF9800)
                             )
                         }
-                        items(todayAssignments.filterNot { it.isOverdue() }) { assignment ->
+                        items(today) { assignment ->
                             DashboardAssignmentCard(
                                 assignment = assignment,
                                 onClick = {
@@ -253,10 +318,6 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                     }
 
                     // Upcoming Assignments (Next 7 days)
-                    val upcoming = upcomingAssignments
-                        .filterNot { it.isOverdue() }
-                        .filterNot { it.isDueToday() }
-
                     if (upcoming.isNotEmpty()) {
                         item {
                             SectionHeader(
@@ -276,11 +337,6 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                     }
 
                     // Future Assignments
-                    val future = allPendingAssignments
-                        .filterNot { it.isOverdue() }
-                        .filterNot { it.isDueToday() }
-                        .filterNot { upcoming.contains(it) }
-
                     if (future.isNotEmpty()) {
                         item {
                             SectionHeader(
@@ -307,7 +363,16 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
     if (showFilterDialog) {
         AlertDialog(
             onDismissRequest = { showFilterDialog = false },
-            title = { Text("Filter Assignments") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.FilterList,
+                        contentDescription = "Filter",
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text("Filter Assignments")
+                }
+            },
             text = {
                 Column {
                     listOf(
@@ -320,7 +385,8 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 4.dp)
+                                .clickable { selectedFilter = value },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
@@ -330,8 +396,7 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.clickable { selectedFilter = value }
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         }
                     }
@@ -339,9 +404,11 @@ fun AssignmentDashboardScreen(navController: NavController, userId: Int) {
             },
             confirmButton = {
                 Button(
-                    onClick = { showFilterDialog = false }
+                    onClick = {
+                        showFilterDialog = false
+                    }
                 ) {
-                    Text("Apply Filter")
+                    Text("Apply")
                 }
             },
             dismissButton = {
@@ -360,7 +427,7 @@ fun SummaryCard(
     title: String,
     count: Int,
     color: Color,
-    icon: ImageVector,  // CHANGED FROM Icons.Filled
+    icon: ImageVector,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -405,7 +472,7 @@ fun SummaryCard(
 fun StatItem(
     value: String,
     label: String,
-    icon: ImageVector  // CHANGED FROM Icons.Filled
+    icon: ImageVector
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
@@ -602,21 +669,26 @@ fun DashboardAssignmentCard(
     }
 }
 
-// Helper functions
+// Helper functions - Updated to accept List parameter
 private fun calculateAvgTimeRemaining(assignments: List<com.example.unitrack.data.models.Assignment>): String {
     if (assignments.isEmpty()) return "0d"
 
-    val avgDays = assignments
-        .filterNot { it.isOverdue() }
+    val notOverdueAssignments = assignments.filterNot { it.isOverdue() }
+    if (notOverdueAssignments.isEmpty()) return "0d"
+
+    val avgDays = notOverdueAssignments
         .map { it.daysRemaining() }
         .average()
 
-    return if (avgDays.isNaN()) "0d" else "${avgDays.toInt()}d"
+    return if (avgDays.isNaN()) "0d" else "%.1fd".format(avgDays)
 }
 
-private fun calculateCompletionRate(assignments: List<com.example.unitrack.data.models.Assignment>): Int {
-    if (assignments.isEmpty()) return 100
+private fun calculateCompletionRate(assignments: List<com.example.unitrack.data.models.Assignment>): String {
+    if (assignments.isEmpty()) return "100%"
 
     val notOverdue = assignments.count { !it.isOverdue() }
-    return (notOverdue.toFloat() / assignments.size * 100).toInt()
+    val percentage = (notOverdue.toFloat() / assignments.size * 100)
+
+    // Format to 1 decimal place with % sign
+    return "%.1f%%".format(percentage)
 }

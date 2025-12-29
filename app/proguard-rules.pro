@@ -34,3 +34,20 @@
 
 # Keep composable functions
 -keep class androidx.compose.runtime.Composable
+
+# Room
+-keep class * extends androidx.room.RoomDatabase
+-keep class * extends androidx.room.Entity
+-keepclassmembers class * {
+    @androidx.room.* *;
+}
+
+# ViewModel
+-keep class * extends androidx.lifecycle.ViewModel
+-keepclassmembers class * extends androidx.lifecycle.ViewModel {
+    <init>(...);
+}
+
+# Coroutines
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}

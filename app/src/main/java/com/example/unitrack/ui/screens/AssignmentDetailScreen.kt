@@ -9,7 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector  // ADD THIS IMPORT
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,7 +33,8 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
             AppDatabase.getDatabase(context).userDao(),
             AppDatabase.getDatabase(context).semesterDao(),
             AppDatabase.getDatabase(context).subjectDao(),
-            AppDatabase.getDatabase(context).assignmentDao()
+            AppDatabase.getDatabase(context).assignmentDao(),
+            AppDatabase.getDatabase(context).lectureDao()
         )
     }
     val viewModel: AssignmentViewModel = viewModel(
@@ -46,6 +47,10 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
     var showCompleteDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var obtainedMarks by remember { mutableStateOf("") }
+
+    // States for editing marks
+    var showMarksDialog by remember { mutableStateOf(false) }
+    var editMarks by remember { mutableStateOf("") }
 
     LaunchedEffect(assignmentId) {
         assignment = viewModel.getAssignmentById(assignmentId)
@@ -66,11 +71,24 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                 },
                 actions = {
                     if (assignment != null) {
+                        // Edit Marks button
+                        IconButton(
+                            onClick = {
+                                assignment?.let {
+                                    editMarks = it.obtainedMarks?.toString() ?: ""
+                                    showMarksDialog = true
+                                }
+                            },
+                            enabled = assignment!!.status == "completed"
+                        ) {
+                            Icon(Icons.Default.Score, contentDescription = "Edit Marks")
+                        }
+
                         IconButton(
                             onClick = { showEditDialog = true },
                             enabled = assignment!!.status != "completed"
                         ) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit")
+                            Icon(Icons.Default.Edit, contentDescription = "Edit Assignment")
                         }
 
                         IconButton(
@@ -83,12 +101,26 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
             )
         },
         floatingActionButton = {
-            if (assignment != null && assignment!!.status != "completed") {
-                ExtendedFloatingActionButton(
-                    onClick = { showCompleteDialog = true },
-                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Complete") },
-                    text = { Text("Mark as Complete") }
-                )
+            if (assignment != null) {
+                if (assignment!!.status != "completed") {
+                    ExtendedFloatingActionButton(
+                        onClick = { showCompleteDialog = true },
+                        icon = { Icon(Icons.Default.CheckCircle, contentDescription = "Complete") },
+                        text = { Text("Mark as Complete") }
+                    )
+                } else if (assignment!!.status == "completed" && assignment!!.obtainedMarks == null) {
+                    // FAB to add marks after completion
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            assignment?.let {
+                                editMarks = ""
+                                showMarksDialog = true
+                            }
+                        },
+                        icon = { Icon(Icons.Default.Grade, contentDescription = "Add Marks") },
+                        text = { Text("Add Marks") }
+                    )
+                }
             }
         }
     ) { paddingValues ->
@@ -100,11 +132,42 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Countdown Timer
-                CountdownTimer(
-                    dueDate = assignment.dueDate,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                // Countdown Timer (only if not completed)
+                if (assignment.status != "completed") {
+                    CountdownTimer(
+                        dueDate = assignment.dueDate,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    // Completed status badge
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFF4CAF50).copy(alpha = 0.1f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Completed",
+                                tint = Color(0xFF4CAF50)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "COMPLETED",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF4CAF50)
+                            )
+                        }
+                    }
+                }
 
                 // Status and Priority Card
                 Card(
@@ -157,11 +220,13 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                             value = assignment.getDueDateFormatted()
                         )
 
-                        DetailRow(
-                            icon = Icons.Default.Schedule,
-                            title = "Time Remaining",
-                            value = assignment.getTimeRemainingText()
-                        )
+                        if (assignment.status != "completed") {
+                            DetailRow(
+                                icon = Icons.Default.Schedule,
+                                title = "Time Remaining",
+                                value = assignment.getTimeRemainingText()
+                            )
+                        }
 
                         DetailRow(
                             icon = Icons.Default.Timer,
@@ -194,10 +259,23 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                         }
 
                         if (assignment.obtainedMarks != null) {
+                            val percentage = assignment.calculatePercentage()
                             DetailRow(
                                 icon = Icons.Default.Score,
                                 title = "Obtained Marks",
-                                value = "${assignment.obtainedMarks}/${assignment.totalMarks} (${String.format("%.1f", assignment.calculatePercentage())}%)"
+                                value = "${String.format("%.1f", assignment.obtainedMarks)}/${assignment.totalMarks} (${String.format("%.1f", percentage)}%)",
+                                valueColor = when {
+                                    percentage >= 80 -> Color(0xFF4CAF50)
+                                    percentage >= 60 -> Color(0xFFFBC02D)
+                                    else -> MaterialTheme.colorScheme.error
+                                }
+                            )
+                        } else if (assignment.status == "completed") {
+                            DetailRow(
+                                icon = Icons.Default.Info,
+                                title = "Marks Status",
+                                value = "Not entered yet",
+                                valueColor = MaterialTheme.colorScheme.outline
                             )
                         }
                     }
@@ -247,7 +325,7 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                     }
                 }
 
-                // Progress Visualization (if completed)
+                // Performance Visualization (if completed with marks)
                 if (assignment.status == "completed" && assignment.obtainedMarks != null) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -260,30 +338,30 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "Performance",
+                                text = "Performance Analysis",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
 
                             Spacer(modifier = Modifier.height(16.dp))
 
+                            val percentage = assignment.calculatePercentage()
+                            val gradeInfo = getGradeAndFeedback(percentage)
+
                             CircularProgressIndicator(
-                                progress = assignment.calculatePercentage() / 100,
+                                progress = percentage / 100,
                                 modifier = Modifier.size(120.dp),
                                 strokeWidth = 12.dp,
-                                color = when {
-                                    assignment.calculatePercentage() >= 80 -> Color(0xFF4CAF50)
-                                    assignment.calculatePercentage() >= 60 -> Color(0xFFFBC02D)
-                                    else -> MaterialTheme.colorScheme.error
-                                }
+                                color = gradeInfo.color
                             )
 
                             Spacer(modifier = Modifier.height(16.dp))
 
                             Text(
-                                text = "${String.format("%.1f", assignment.calculatePercentage())}%",
+                                text = "${String.format("%.1f", percentage)}%",
                                 style = MaterialTheme.typography.displaySmall,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = gradeInfo.color
                             )
 
                             Text(
@@ -291,17 +369,119 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                                 style = MaterialTheme.typography.titleMedium
                             )
 
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Grade Display
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = gradeInfo.color.copy(alpha = 0.1f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = gradeInfo.grade,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = gradeInfo.color
+                                    )
+                                    Text(
+                                        text = gradeInfo.feedback,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
+
+                            // Additional Statistics
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceAround
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "📊 Performance",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = when {
+                                            percentage >= 90 -> "Excellent"
+                                            percentage >= 80 -> "Very Good"
+                                            percentage >= 70 -> "Good"
+                                            percentage >= 60 -> "Satisfactory"
+                                            percentage >= 50 -> "Pass"
+                                            else -> "Needs Improvement"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "🎯 Target",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = when {
+                                            percentage >= assignment.totalMarks * 0.8 -> "Above Target"
+                                            percentage >= assignment.totalMarks * 0.6 -> "On Target"
+                                            else -> "Below Target"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Button to add/edit marks if completed but no marks
+                if (assignment.status == "completed" && assignment.obtainedMarks == null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFFFFF3E0)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
                             Text(
-                                text = when {
-                                    assignment.calculatePercentage() >= 90 -> "Excellent! 🎉"
-                                    assignment.calculatePercentage() >= 80 -> "Great job! 👍"
-                                    assignment.calculatePercentage() >= 70 -> "Good work! 👌"
-                                    assignment.calculatePercentage() >= 60 -> "Satisfactory"
-                                    else -> "Needs improvement"
-                                },
+                                text = "📝 Marks Not Entered",
                                 style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.padding(top = 8.dp)
+                                fontWeight = FontWeight.Bold
                             )
+                            Text(
+                                text = "You can add your marks now or later",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                            Text(
+                                text = "Total Marks: ${assignment.totalMarks}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                            Button(
+                                onClick = {
+                                    editMarks = ""
+                                    showMarksDialog = true
+                                },
+                                modifier = Modifier.padding(top = 12.dp)
+                            ) {
+                                Icon(Icons.Default.Grade, contentDescription = "Add Marks")
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Add Marks Now")
+                            }
                         }
                     }
                 }
@@ -322,7 +502,19 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Delete Assignment") },
-            text = { Text("Are you sure you want to delete '${assignment?.title}'?") },
+            text = {
+                Column {
+                    Text("Are you sure you want to delete '${assignment?.title}'?")
+                    if (assignment?.status == "completed") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "⚠️ This assignment has been completed and graded.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -369,6 +561,33 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                             modifier = Modifier.fillMaxWidth(),
                             suffix = { Text("/${assignment!!.totalMarks}") }
                         )
+
+                        // Show percentage preview if marks entered
+                        if (obtainedMarks.isNotBlank()) {
+                            val marks = obtainedMarks.toFloatOrNull()
+                            marks?.let {
+                                if (assignment!!.totalMarks > 0) {
+                                    val percentage = (it / assignment!!.totalMarks) * 100
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Percentage: ${String.format("%.1f", percentage)}%",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = when {
+                                            percentage >= 80 -> Color(0xFF4CAF50)
+                                            percentage >= 60 -> Color(0xFFFBC02D)
+                                            else -> MaterialTheme.colorScheme.error
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "You can add marks later if not available now",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
                     }
                 }
             },
@@ -381,7 +600,9 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
                             } else null
 
                             viewModel.completeAssignment(assignmentId, marks)
-                            navController.navigateUp()
+                            assignment = viewModel.getAssignmentById(assignmentId)
+                            showCompleteDialog = false
+                            obtainedMarks = ""
                         }
                     }
                 ) {
@@ -391,6 +612,137 @@ fun AssignmentDetailScreen(navController: NavController, assignmentId: Int) {
             dismissButton = {
                 TextButton(
                     onClick = { showCompleteDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Edit Marks Dialog
+    if (showMarksDialog && assignment != null) {
+        AlertDialog(
+            onDismissRequest = { showMarksDialog = false },
+            title = {
+                Text(
+                    if (assignment!!.obtainedMarks == null) "Add Assignment Marks"
+                    else "Edit Assignment Marks"
+                )
+            },
+            text = {
+                Column {
+                    Text("Assignment: ${assignment!!.title}")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Total Marks: ${assignment!!.totalMarks}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = editMarks,
+                        onValueChange = {
+                            if (it.all { char -> char.isDigit() || char == '.' } || it.isEmpty()) {
+                                editMarks = it
+                            }
+                        },
+                        label = { Text("Obtained Marks") },
+                        modifier = Modifier.fillMaxWidth(),
+                        suffix = { Text("/${assignment!!.totalMarks}") },
+                        supportingText = {
+                            if (editMarks.isNotBlank()) {
+                                val marks = editMarks.toFloatOrNull()
+                                marks?.let {
+                                    if (it > assignment!!.totalMarks) {
+                                        Text("Marks cannot exceed total marks")
+                                    }
+                                }
+                            }
+                        },
+                        isError = editMarks.isNotBlank() &&
+                                (editMarks.toFloatOrNull() ?: 0f) > assignment!!.totalMarks
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Leave blank to remove marks",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+
+                    // Show current percentage and grade if marks are entered
+                    if (editMarks.isNotBlank()) {
+                        val marks = editMarks.toFloatOrNull()
+                        marks?.let {
+                            if (assignment!!.totalMarks > 0 && it <= assignment!!.totalMarks) {
+                                val percentage = (it / assignment!!.totalMarks) * 100
+                                val gradeInfo = getGradeAndFeedback(percentage)
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Percentage: ${String.format("%.1f", percentage)}%",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = gradeInfo.color
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Grade: ${gradeInfo.grade}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = gradeInfo.color
+                                        )
+                                        Text(
+                                            text = gradeInfo.feedback,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val marks = editMarks.toFloatOrNull()
+                        if (marks != null && marks > assignment!!.totalMarks) {
+                            return@Button
+                        }
+
+                        coroutineScope.launch {
+                            // Update assignment with marks
+                            assignment?.let {
+                                val updated = it.copy(obtainedMarks = marks)
+                                viewModel.updateAssignment(updated)
+                                assignment = updated
+                            }
+                            showMarksDialog = false
+                            editMarks = ""
+                        }
+                    },
+                    enabled = editMarks.isEmpty() ||
+                            (editMarks.toFloatOrNull() ?: 0f) <= assignment!!.totalMarks
+                ) {
+                    Text(if (assignment!!.obtainedMarks == null) "Add Marks" else "Update Marks")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showMarksDialog = false
+                        editMarks = ""
+                    }
                 ) {
                     Text("Cancel")
                 }
@@ -463,7 +815,12 @@ fun TimeBadge(time: String, color: Color) {
 }
 
 @Composable
-fun DetailRow(icon: ImageVector, title: String, value: String) {  // CHANGED FROM Icons.Filled to ImageVector
+fun DetailRow(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -485,7 +842,8 @@ fun DetailRow(icon: ImageVector, title: String, value: String) {  // CHANGED FRO
             )
             Text(
                 text = value,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = valueColor
             )
         }
     }
@@ -494,4 +852,81 @@ fun DetailRow(icon: ImageVector, title: String, value: String) {  // CHANGED FRO
 private fun formatDate(timestamp: Long): String {
     val sdf = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
     return sdf.format(Date(timestamp))
+}
+
+// Helper data class for grade information
+data class GradeInfo(
+    val grade: String,
+    val feedback: String,
+    val color: Color
+)
+
+// Helper function to get grade from percentage
+// Replace the getGradeAndFeedback function with this:
+
+// Helper function to get grade from percentage
+// Option 2: Use hardcoded color for error
+private fun getGradeAndFeedback(percentage: Float): GradeInfo {
+    return when {
+        percentage >= 90 -> GradeInfo(
+            grade = "A+",
+            feedback = "Excellent! 🎉",
+            color = Color(0xFF4CAF50)
+        )
+        percentage >= 85 -> GradeInfo(
+            grade = "A",
+            feedback = "Very Good! 👍",
+            color = Color(0xFF4CAF50)
+        )
+        percentage >= 80 -> GradeInfo(
+            grade = "A-",
+            feedback = "Good job! 👌",
+            color = Color(0xFF4CAF50)
+        )
+        percentage >= 75 -> GradeInfo(
+            grade = "B+",
+            feedback = "Good work!",
+            color = Color(0xFFFBC02D)
+        )
+        percentage >= 70 -> GradeInfo(
+            grade = "B",
+            feedback = "Satisfactory",
+            color = Color(0xFFFBC02D)
+        )
+        percentage >= 65 -> GradeInfo(
+            grade = "B-",
+            feedback = "Satisfactory",
+            color = Color(0xFFFBC02D)
+        )
+        percentage >= 60 -> GradeInfo(
+            grade = "C+",
+            feedback = "Pass",
+            color = Color(0xFFFBC02D)
+        )
+        percentage >= 55 -> GradeInfo(
+            grade = "C",
+            feedback = "Pass",
+            color = Color(0xFFFBC02D)
+        )
+        percentage >= 50 -> GradeInfo(
+            grade = "C-",
+            feedback = "Pass",
+            color = Color(0xFFFBC02D)
+        )
+        percentage >= 45 -> GradeInfo(
+            grade = "D+",
+            feedback = "Marginal Pass",
+            color = Color(0xFFFF9800)
+        )
+        percentage >= 40 -> GradeInfo(
+            grade = "D",
+            feedback = "Marginal Pass",
+            color = Color(0xFFFF9800)
+        )
+        else -> GradeInfo(
+            grade = "F",
+            feedback = "Needs Improvement",
+            color = Color(0xFFF44336) // Hardcoded red color instead of MaterialTheme.colorScheme.error
+        )
+    }
 }

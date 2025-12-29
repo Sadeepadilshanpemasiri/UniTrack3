@@ -1,13 +1,12 @@
 // app/src/main/java/com/example/unitrack/ui/screens/AddAssignmentScreen.kt
 package com.example.unitrack.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +21,7 @@ import com.example.unitrack.data.repositories.GpaRepository
 import com.example.unitrack.ui.viewmodels.AssignmentViewModel
 import com.example.unitrack.ui.viewmodels.AssignmentViewModelFactory
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +33,8 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
             AppDatabase.getDatabase(context).userDao(),
             AppDatabase.getDatabase(context).semesterDao(),
             AppDatabase.getDatabase(context).subjectDao(),
-            AppDatabase.getDatabase(context).assignmentDao()
+            AppDatabase.getDatabase(context).assignmentDao(),
+            AppDatabase.getDatabase(context).lectureDao()
         )
     }
     val viewModel: AssignmentViewModel = viewModel(
@@ -45,17 +46,40 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
     var description by remember { mutableStateOf("") }
     var selectedPriority by remember { mutableStateOf(2) } // Medium by default
     var estimatedHours by remember { mutableStateOf("2") }
-    var totalMarks by remember { mutableStateOf("100") }
+    var totalMarks by remember { mutableStateOf("") }
 
-    // Date picker states - use mutableStateOf for Calendar
+    // Use a single Calendar instance for due date/time
+    var dueCalendar by remember {
+        mutableStateOf(Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, 7) // Default: 1 week from now
+            set(Calendar.HOUR_OF_DAY, 17) // 5 PM
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+        })
+    }
+
     var showDatePicker by remember { mutableStateOf(false) }
-    var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
-    var selectedTime by remember { mutableStateOf(Calendar.getInstance().apply {
-        add(Calendar.DAY_OF_YEAR, 7) // Default to 1 week from now
-    }) }
-
     var errorMessage by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
+    var showSuccessDialog by remember { mutableStateOf(false) }
+    var savedAssignmentTitle by remember { mutableStateOf("") }
+
+    // Manual input fields for date - synchronized with dueCalendar
+    var dayInput by remember {
+        mutableStateOf(dueCalendar.get(Calendar.DAY_OF_MONTH).toString())
+    }
+    var monthInput by remember {
+        mutableStateOf((dueCalendar.get(Calendar.MONTH) + 1).toString())
+    }
+    var yearInput by remember {
+        mutableStateOf(dueCalendar.get(Calendar.YEAR).toString())
+    }
+    var hourInput by remember {
+        mutableStateOf(String.format("%02d", dueCalendar.get(Calendar.HOUR_OF_DAY)))
+    }
+    var minuteInput by remember {
+        mutableStateOf(String.format("%02d", dueCalendar.get(Calendar.MINUTE)))
+    }
 
     val priorities = listOf(
         Pair(1, "Low"),
@@ -63,6 +87,37 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
         Pair(3, "High"),
         Pair(4, "Critical")
     )
+
+    // Update calendar when manual inputs change
+    LaunchedEffect(dayInput, monthInput, yearInput, hourInput, minuteInput) {
+        val day = dayInput.toIntOrNull() ?: 1
+        val month = monthInput.toIntOrNull() ?: 1
+        val year = yearInput.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)
+        val hour = hourInput.toIntOrNull() ?: 17
+        val minute = minuteInput.toIntOrNull() ?: 0
+
+        if (day in 1..31 && month in 1..12 && year >= 2023 && year <= 2030 &&
+            hour in 0..23 && minute in 0..59) {
+
+            dueCalendar = Calendar.getInstance().apply {
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month - 1) // Month is 0-based
+                set(Calendar.DAY_OF_MONTH, day)
+                set(Calendar.HOUR_OF_DAY, hour)
+                set(Calendar.MINUTE, minute)
+                set(Calendar.SECOND, 0)
+            }
+        }
+    }
+
+    // Update manual inputs when quick buttons are pressed
+    fun updateInputsFromCalendar() {
+        dayInput = dueCalendar.get(Calendar.DAY_OF_MONTH).toString()
+        monthInput = (dueCalendar.get(Calendar.MONTH) + 1).toString()
+        yearInput = dueCalendar.get(Calendar.YEAR).toString()
+        hourInput = String.format("%02d", dueCalendar.get(Calendar.HOUR_OF_DAY))
+        minuteInput = String.format("%02d", dueCalendar.get(Calendar.MINUTE))
+    }
 
     Scaffold(
         topBar = {
@@ -77,25 +132,23 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
                     IconButton(
                         onClick = {
                             if (validateInput(title, estimatedHours, totalMarks)) {
-                                // Combine date and time
-                                val dueCalendar = Calendar.getInstance().apply {
-                                    time = selectedDate.time
-                                    set(Calendar.HOUR_OF_DAY, selectedTime.get(Calendar.HOUR_OF_DAY))
-                                    set(Calendar.MINUTE, selectedTime.get(Calendar.MINUTE))
-                                    set(Calendar.SECOND, 0)
-                                }
-
                                 coroutineScope.launch {
-                                    viewModel.addAssignment(
-                                        subjectId = subjectId,
-                                        title = title,
-                                        description = description,
-                                        dueDate = dueCalendar.timeInMillis,
-                                        priority = selectedPriority,
-                                        estimatedTimeHours = estimatedHours.toInt(),
-                                        totalMarks = totalMarks.toFloat()
-                                    )
-                                    navController.navigateUp()
+                                    try {
+                                        viewModel.addAssignment(
+                                            subjectId = subjectId,
+                                            title = title,
+                                            description = description,
+                                            dueDate = dueCalendar.timeInMillis,
+                                            priority = selectedPriority,
+                                            estimatedTimeHours = estimatedHours.toInt(),
+                                            totalMarks = totalMarks.toFloatOrNull() ?: 0f
+                                        )
+                                        savedAssignmentTitle = title
+                                        showSuccessDialog = true
+                                    } catch (e: Exception) {
+                                        errorMessage = "Failed to save assignment: ${e.message}"
+                                        showError = true
+                                    }
                                 }
                             } else {
                                 errorMessage = "Please fill all required fields correctly"
@@ -161,7 +214,7 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
                 }
             }
 
-            // Date Selection
+            // Date Selection Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = { showDatePicker = true }
@@ -179,7 +232,7 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
                             style = MaterialTheme.typography.labelMedium
                         )
                         Text(
-                            text = formatDateTime(selectedDate, selectedTime),
+                            text = formatDateTime(dueCalendar.time),
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(top = 4.dp)
                         )
@@ -215,14 +268,15 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
                             totalMarks = it
                         }
                     },
-                    label = { Text("Total Marks") },
+                    label = { Text("Total Marks *") },
                     modifier = Modifier.weight(1f),
-                    singleLine = true
+                    singleLine = true,
+                    isError = showError && (totalMarks.isBlank() || totalMarks.toFloatOrNull() == null)
                 )
             }
 
-            // Quick date buttons - FIXED VERSION
-            Text("Quick Set:", style = MaterialTheme.typography.labelMedium)
+            // Quick date buttons
+            Text("Quick Set Due Date:", style = MaterialTheme.typography.labelMedium)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -236,19 +290,44 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
                 ).forEach { (label, days) ->
                     Button(
                         onClick = {
-                            // Create a new Calendar instance for the date
-                            val newDate = Calendar.getInstance()
-                            newDate.add(Calendar.DAY_OF_YEAR, days)
-                            selectedDate = newDate
-
-                            // Update the existing selectedTime Calendar object
-                            selectedTime.set(Calendar.HOUR_OF_DAY, 17)
-                            selectedTime.set(Calendar.MINUTE, 0)
-
-                            // Trigger recomposition by updating the state
-                            selectedTime = Calendar.getInstance().apply {
-                                timeInMillis = selectedTime.timeInMillis
+                            dueCalendar = Calendar.getInstance().apply {
+                                add(Calendar.DAY_OF_YEAR, days)
+                                set(Calendar.HOUR_OF_DAY, 17) // 5 PM
+                                set(Calendar.MINUTE, 0)
+                                set(Calendar.SECOND, 0)
                             }
+                            updateInputsFromCalendar()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+
+            // Quick time buttons
+            Text("Quick Set Time:", style = MaterialTheme.typography.labelMedium)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    Pair("9 AM", 9),
+                    Pair("12 PM", 12),
+                    Pair("3 PM", 15),
+                    Pair("5 PM", 17),
+                    Pair("11 PM", 23)
+                ).forEach { (label, hour) ->
+                    Button(
+                        onClick = {
+                            dueCalendar = Calendar.getInstance().apply {
+                                timeInMillis = dueCalendar.timeInMillis
+                                set(Calendar.HOUR_OF_DAY, hour)
+                                set(Calendar.MINUTE, 0)
+                                set(Calendar.SECOND, 0)
+                            }
+                            updateInputsFromCalendar()
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -260,24 +339,23 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
             Button(
                 onClick = {
                     if (validateInput(title, estimatedHours, totalMarks)) {
-                        val dueCalendar = Calendar.getInstance().apply {
-                            time = selectedDate.time
-                            set(Calendar.HOUR_OF_DAY, selectedTime.get(Calendar.HOUR_OF_DAY))
-                            set(Calendar.MINUTE, selectedTime.get(Calendar.MINUTE))
-                            set(Calendar.SECOND, 0)
-                        }
-
                         coroutineScope.launch {
-                            viewModel.addAssignment(
-                                subjectId = subjectId,
-                                title = title,
-                                description = description,
-                                dueDate = dueCalendar.timeInMillis,
-                                priority = selectedPriority,
-                                estimatedTimeHours = estimatedHours.toInt(),
-                                totalMarks = totalMarks.toFloat()
-                            )
-                            navController.navigateUp()
+                            try {
+                                viewModel.addAssignment(
+                                    subjectId = subjectId,
+                                    title = title,
+                                    description = description,
+                                    dueDate = dueCalendar.timeInMillis,
+                                    priority = selectedPriority,
+                                    estimatedTimeHours = estimatedHours.toInt(),
+                                    totalMarks = totalMarks.toFloatOrNull() ?: 0f
+                                )
+                                savedAssignmentTitle = title
+                                showSuccessDialog = true
+                            } catch (e: Exception) {
+                                errorMessage = "Failed to save assignment: ${e.message}"
+                                showError = true
+                            }
                         }
                     } else {
                         errorMessage = "Please fill all required fields correctly"
@@ -335,7 +413,7 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
                     )
 
                     Text(
-                        text = "Due: ${formatDateTime(selectedDate, selectedTime)}",
+                        text = "Due: ${formatDateTime(dueCalendar.time)}",
                         style = MaterialTheme.typography.bodyMedium
                     )
 
@@ -343,6 +421,13 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
                         text = "Estimated: ${estimatedHours.toIntOrNull() ?: 2} hours",
                         style = MaterialTheme.typography.bodyMedium
                     )
+
+                    if (totalMarks.isNotBlank()) {
+                        Text(
+                            text = "Total Marks: ${totalMarks.toFloatOrNull() ?: 0f}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         }
@@ -355,100 +440,207 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
             title = { Text("Select Due Date & Time") },
             text = {
                 Column {
-                    // Date picker
-                    Text("Select Date:", style = MaterialTheme.typography.labelMedium)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Note: For a real date picker, you'd use DatePicker from accompanist
-                    // This is a simplified version
-                    OutlinedTextField(
-                        value = formatDateOnly(selectedDate),
-                        onValueChange = { /* In real app, this would open a date picker */ },
-                        label = { Text("Date") },
-                        modifier = Modifier.fillMaxWidth(),
-                        readOnly = true,
-                        trailingIcon = {
-                            Icon(
-                                Icons.Default.CalendarToday,
-                                contentDescription = "Pick Date"
-                            )
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Time picker
-                    Text("Select Time:", style = MaterialTheme.typography.labelMedium)
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = String.format("%02d", selectedTime.get(Calendar.HOUR_OF_DAY)),
-                            onValueChange = {
-                                val hour = it.toIntOrNull() ?: 0
-                                if (hour in 0..23) {
-                                    // Create a new Calendar instance with updated time
-                                    val updatedTime = Calendar.getInstance().apply {
-                                        timeInMillis = selectedTime.timeInMillis
-                                        set(Calendar.HOUR_OF_DAY, hour)
-                                    }
-                                    selectedTime = updatedTime
-                                }
-                            },
-                            label = { Text("Hour") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-
-                        OutlinedTextField(
-                            value = String.format("%02d", selectedTime.get(Calendar.MINUTE)),
-                            onValueChange = {
-                                val minute = it.toIntOrNull() ?: 0
-                                if (minute in 0..59) {
-                                    // Create a new Calendar instance with updated time
-                                    val updatedTime = Calendar.getInstance().apply {
-                                        timeInMillis = selectedTime.timeInMillis
-                                        set(Calendar.MINUTE, minute)
-                                    }
-                                    selectedTime = updatedTime
-                                }
-                            },
-                            label = { Text("Minute") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                    }
-
-                    // Quick time buttons
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Common Times:", style = MaterialTheme.typography.labelSmall)
+                    // Date Selection
+                    Text("Date (DD/MM/YYYY):", style = MaterialTheme.typography.labelMedium)
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf("9 AM", "12 PM", "3 PM", "5 PM", "11 PM").forEach { time ->
+                        // Day
+                        OutlinedTextField(
+                            value = dayInput,
+                            onValueChange = {
+                                if (it.all { char -> char.isDigit() } && it.length <= 2) {
+                                    dayInput = it
+                                }
+                            },
+                            label = { Text("DD") },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("DD") },
+                            supportingText = {
+                                if (dayInput.isNotBlank()) {
+                                    val day = dayInput.toIntOrNull()
+                                    if (day == null || day !in 1..31) {
+                                        Text("Must be 1-31")
+                                    }
+                                }
+                            },
+                            isError = dayInput.isNotBlank() &&
+                                    (dayInput.toIntOrNull() == null || dayInput.toInt() !in 1..31)
+                        )
+
+                        // Month
+                        OutlinedTextField(
+                            value = monthInput,
+                            onValueChange = {
+                                if (it.all { char -> char.isDigit() } && it.length <= 2) {
+                                    monthInput = it
+                                }
+                            },
+                            label = { Text("MM") },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("MM") },
+                            supportingText = {
+                                if (monthInput.isNotBlank()) {
+                                    val month = monthInput.toIntOrNull()
+                                    if (month == null || month !in 1..12) {
+                                        Text("Must be 1-12")
+                                    }
+                                }
+                            },
+                            isError = monthInput.isNotBlank() &&
+                                    (monthInput.toIntOrNull() == null || monthInput.toInt() !in 1..12)
+                        )
+
+                        // Year
+                        OutlinedTextField(
+                            value = yearInput,
+                            onValueChange = {
+                                if (it.all { char -> char.isDigit() } && it.length <= 4) {
+                                    yearInput = it
+                                }
+                            },
+                            label = { Text("YYYY") },
+                            modifier = Modifier.weight(1.5f),
+                            placeholder = { Text("YYYY") },
+                            supportingText = {
+                                if (yearInput.isNotBlank()) {
+                                    val year = yearInput.toIntOrNull()
+                                    if (year == null || year < 2023 || year > 2030) {
+                                        Text("2023-2030")
+                                    }
+                                }
+                            },
+                            isError = yearInput.isNotBlank() &&
+                                    (yearInput.toIntOrNull() == null ||
+                                            yearInput.toInt() !in 2023..2030)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Time Selection
+                    Text("Time (24-hour format):", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Hour
+                        OutlinedTextField(
+                            value = hourInput,
+                            onValueChange = {
+                                if (it.all { char -> char.isDigit() } && it.length <= 2) {
+                                    hourInput = it
+                                }
+                            },
+                            label = { Text("HH") },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("HH") },
+                            supportingText = {
+                                if (hourInput.isNotBlank()) {
+                                    val hour = hourInput.toIntOrNull()
+                                    if (hour == null || hour !in 0..23) {
+                                        Text("Must be 0-23")
+                                    }
+                                }
+                            },
+                            isError = hourInput.isNotBlank() &&
+                                    (hourInput.toIntOrNull() == null || hourInput.toInt() !in 0..23)
+                        )
+
+                        // Minute
+                        OutlinedTextField(
+                            value = minuteInput,
+                            onValueChange = {
+                                if (it.all { char -> char.isDigit() } && it.length <= 2) {
+                                    minuteInput = it
+                                }
+                            },
+                            label = { Text("MM") },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("MM") },
+                            supportingText = {
+                                if (minuteInput.isNotBlank()) {
+                                    val minute = minuteInput.toIntOrNull()
+                                    if (minute == null || minute !in 0..59) {
+                                        Text("Must be 0-59")
+                                    }
+                                }
+                            },
+                            isError = minuteInput.isNotBlank() &&
+                                    (minuteInput.toIntOrNull() == null || minuteInput.toInt() !in 0..59)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Current date display
+                    Text(
+                        text = "Selected: ${formatDateTime(dueCalendar.time)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Quick date selection
+                    Text("Quick Selection:", style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column {
+                        listOf(
+                            "Today" to 0,
+                            "Tomorrow" to 1,
+                            "3 Days" to 3,
+                            "1 Week" to 7,
+                            "2 Weeks" to 14
+                        ).forEach { (label, days) ->
+                            TextButton(
+                                onClick = {
+                                    dueCalendar = Calendar.getInstance().apply {
+                                        add(Calendar.DAY_OF_YEAR, days)
+                                        set(Calendar.HOUR_OF_DAY, 17)
+                                        set(Calendar.MINUTE, 0)
+                                        set(Calendar.SECOND, 0)
+                                    }
+                                    updateInputsFromCalendar()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(label)
+                            }
+                        }
+                    }
+
+                    // Quick time selection
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Quick Time:", style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "9:00" to 9,
+                            "12:00" to 12,
+                            "15:00" to 15,
+                            "17:00" to 17,
+                            "23:00" to 23
+                        ).forEach { (time, hour) ->
                             Button(
                                 onClick = {
-                                    val hour = when (time) {
-                                        "9 AM" -> 9
-                                        "12 PM" -> 12
-                                        "3 PM" -> 15
-                                        "5 PM" -> 17
-                                        "11 PM" -> 23
-                                        else -> 17
-                                    }
-                                    // Create a new Calendar instance with updated time
-                                    val updatedTime = Calendar.getInstance().apply {
-                                        timeInMillis = selectedTime.timeInMillis
+                                    dueCalendar = Calendar.getInstance().apply {
+                                        timeInMillis = dueCalendar.timeInMillis
                                         set(Calendar.HOUR_OF_DAY, hour)
                                         set(Calendar.MINUTE, 0)
+                                        set(Calendar.SECOND, 0)
                                     }
-                                    selectedTime = updatedTime
+                                    updateInputsFromCalendar()
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
@@ -460,7 +652,9 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
             },
             confirmButton = {
                 Button(
-                    onClick = { showDatePicker = false }
+                    onClick = {
+                        showDatePicker = false
+                    }
                 ) {
                     Text("OK")
                 }
@@ -474,8 +668,80 @@ fun AddAssignmentScreen(navController: NavController, subjectId: Int) {
             }
         )
     }
+
+    // Success Dialog - FIXED VERSION
+    if (showSuccessDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showSuccessDialog = false
+                navController.navigateUp()
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Done,  // Changed from CheckCircle to Done
+                        contentDescription = "Success",
+                        tint = Color(0xFF4CAF50),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text("Assignment Added!")
+                }
+            },
+            text = {
+                Column {
+                    Text("'$savedAssignmentTitle' has been saved successfully.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Due: ${formatDateTime(dueCalendar.time)}",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Column {
+                    Button(
+                        onClick = {
+                            showSuccessDialog = false
+                            // Reset form for new assignment
+                            title = ""
+                            description = ""
+                            selectedPriority = 2
+                            estimatedHours = "2"
+                            totalMarks = ""
+                            dueCalendar = Calendar.getInstance().apply {
+                                add(Calendar.DAY_OF_YEAR, 7)
+                                set(Calendar.HOUR_OF_DAY, 17)
+                                set(Calendar.MINUTE, 0)
+                                set(Calendar.SECOND, 0)
+                            }
+                            updateInputsFromCalendar()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Text("Add Another Assignment")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            showSuccessDialog = false
+                            navController.navigateUp()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Done")
+                    }
+                }
+            }
+        )
+    }
 }
 
+// Helper functions
 private fun validateInput(title: String, hours: String, marks: String): Boolean {
     return title.isNotBlank() &&
             hours.isNotBlank() &&
@@ -484,17 +750,8 @@ private fun validateInput(title: String, hours: String, marks: String): Boolean 
             (marks.isEmpty() || marks.toFloatOrNull() != null)
 }
 
-private fun formatDateTime(date: Calendar, time: Calendar): String {
-    val sdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-    val combined = Calendar.getInstance().apply {
-        setTime(date.time)  // Use setTime() instead of time = date.time
-        set(Calendar.HOUR_OF_DAY, time.get(Calendar.HOUR_OF_DAY))
-        set(Calendar.MINUTE, time.get(Calendar.MINUTE))
-    }
-    return sdf.format(combined.time)
+private fun formatDateTime(date: Date): String {
+    val sdf = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+    return sdf.format(date)
 }
 
-private fun formatDateOnly(date: Calendar): String {
-    val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-    return sdf.format(date.time)
-}

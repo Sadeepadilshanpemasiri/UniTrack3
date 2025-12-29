@@ -5,19 +5,22 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.example.unitrack.data.database.AppDatabase
-import com.example.unitrack.data.repositories.GpaRepository
+import com.example.unitrack.data.RepositoryFactory
 import com.example.unitrack.ui.viewmodels.UserViewModel
-import com.example.unitrack.ui.viewmodels.UserViewModelFactory
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -26,19 +29,27 @@ import java.util.*
 @Composable
 fun UserSelectionScreen(navController: NavController) {
     val context = LocalContext.current
-    val repository = remember {
-        GpaRepository(
-            AppDatabase.getDatabase(context).userDao(),
-            AppDatabase.getDatabase(context).semesterDao(),
-            AppDatabase.getDatabase(context).subjectDao(),
-            AppDatabase.getDatabase(context).assignmentDao()
-        )
+    val repository = remember { RepositoryFactory.getRepository(context) }
+
+    // SIMPLE ViewModel creation using custom factory class
+    class UserViewModelFactory(private val repository: com.example.unitrack.data.repositories.GpaRepository) :
+        ViewModelProvider.Factory {
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(UserViewModel::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                return UserViewModel(repository) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class")
+        }
     }
-    val viewModel: UserViewModel = viewModel(
-        factory = UserViewModelFactory(repository)
-    )
-    // FIXED: Use collectAsState() instead of observeAsState()
-    val users by viewModel.allUsers.collectAsState(emptyList())
+
+    val viewModel: UserViewModel = remember {
+        UserViewModel(repository)
+    }
+
+    // Collect users
+    val users by viewModel.allUsers.collectAsState(initial = emptyList())
+
     val coroutineScope = rememberCoroutineScope()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -46,90 +57,164 @@ fun UserSelectionScreen(navController: NavController) {
     var showAddDialog by remember { mutableStateOf(false) }
     var newUserName by remember { mutableStateOf("") }
     var newStudentId by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Select User") }
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = "Users",
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text("Select User")
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add User")
+            }
         }
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "UniTrack",
-                style = MaterialTheme.typography.displayMedium,
-                modifier = Modifier.padding(bottom = 32.dp)
-            )
-
-            Card(
-                modifier = Modifier.fillMaxWidth()
+            // Header
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Users (${users.size})",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                        Button(
-                            onClick = { showAddDialog = true },
-                            modifier = Modifier.height(40.dp)
-                        ) {
-                            Text("Add User")
-                        }
-                    }
+                Text(
+                    text = "UniTrack",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Student Management System",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
 
-                    if (users.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No users found. Add your first user!",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 400.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(users, key = { it.id }) { user ->
-                                UserCard(
-                                    user = user,
-                                    onSelect = {
-                                        navController.navigate("home/${user.id}")
-                                    },
-                                    onDelete = {
-                                        userToDelete = user
-                                        showDeleteDialog = true
-                                    }
-                                )
-                            }
-                        }
+            // User Stats Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = users.size.toString(),
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Users",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
                     if (users.isNotEmpty()) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Latest",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = users.maxByOrNull { it.createdAt }?.name?.take(10) ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (users.isEmpty()) {
+                // Empty state
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = 48.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = "No users",
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.outline
+                        )
                         Text(
-                            text = "Click delete icon (🗑️) to remove user",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.padding(top = 16.dp)
+                            text = "No Users Yet",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Add your first user to get started with UniTrack",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Button(
+                            onClick = { showAddDialog = true },
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Text("Add First User")
+                        }
+                    }
+                }
+            } else {
+                // User list
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(users, key = { it.id }) { user ->
+                        UserCard(
+                            user = user,
+                            onSelect = {
+                                navController.navigate("home/${user.id}")
+                            },
+                            onDelete = {
+                                userToDelete = user
+                                showDeleteDialog = true
+                            }
                         )
                     }
                 }
@@ -140,44 +225,106 @@ fun UserSelectionScreen(navController: NavController) {
     // Add User Dialog
     if (showAddDialog) {
         AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            title = { Text("Add New User") },
+            onDismissRequest = {
+                showAddDialog = false
+                newUserName = ""
+                newStudentId = ""
+                errorMessage = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Add User",
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text("Add New User")
+                }
+            },
             text = {
                 Column {
+                    // Error message
+                    if (errorMessage != null) {
+                        Text(
+                            text = errorMessage!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+
                     OutlinedTextField(
                         value = newUserName,
-                        onValueChange = { newUserName = it },
+                        onValueChange = {
+                            newUserName = it
+                            errorMessage = null
+                        },
                         label = { Text("Full Name *") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        isError = errorMessage != null && newUserName.isBlank()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = newStudentId,
-                        onValueChange = { newStudentId = it },
+                        onValueChange = {
+                            newStudentId = it
+                            errorMessage = null
+                        },
                         label = { Text("Student ID *") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        isError = errorMessage != null && newStudentId.isBlank()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "* Required fields",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (newUserName.isNotBlank() && newStudentId.isNotBlank()) {
-                            viewModel.addUser(newUserName, newStudentId)
-                            newUserName = ""
-                            newStudentId = ""
-                            showAddDialog = false
+                        // Validate inputs
+                        when {
+                            newUserName.isBlank() && newStudentId.isBlank() -> {
+                                errorMessage = "Please enter name and student ID"
+                            }
+                            newUserName.isBlank() -> {
+                                errorMessage = "Please enter name"
+                            }
+                            newStudentId.isBlank() -> {
+                                errorMessage = "Please enter student ID"
+                            }
+                            users.any { it.studentId == newStudentId } -> {
+                                errorMessage = "Student ID already exists"
+                            }
+                            else -> {
+                                viewModel.addUser(newUserName, newStudentId)
+                                newUserName = ""
+                                newStudentId = ""
+                                errorMessage = null
+                                showAddDialog = false
+                            }
                         }
-                    }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Add")
+                    Text("Add User")
                 }
             },
             dismissButton = {
                 TextButton(
-                    onClick = { showAddDialog = false }
+                    onClick = {
+                        showAddDialog = false
+                        newUserName = ""
+                        newStudentId = ""
+                        errorMessage = null
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Cancel")
                 }
@@ -188,33 +335,96 @@ fun UserSelectionScreen(navController: NavController) {
     // Delete Confirmation Dialog
     if (showDeleteDialog && userToDelete != null) {
         AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete User") },
+            onDismissRequest = {
+                showDeleteDialog = false
+                userToDelete = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text("Delete User")
+                }
+            },
             text = {
                 Column {
-                    Text("Are you sure you want to delete this user?")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("User: ${userToDelete?.name}", style = MaterialTheme.typography.bodyMedium)
-                    Text("ID: ${userToDelete?.studentId}", style = MaterialTheme.typography.bodySmall)
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "⚠️ Warning: This will also delete all semesters and subjects for this user!",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
+                        text = "Are you sure you want to delete this user?",
+                        style = MaterialTheme.typography.bodyMedium
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // User info card in dialog
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = userToDelete!!.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "ID: ${userToDelete!!.studentId}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Created: ${formatDate(userToDelete!!.createdAt)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Warning
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = "Warning",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "This will delete all user data including semesters, subjects, and assignments!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         coroutineScope.launch {
-                            userToDelete?.let { viewModel.deleteUser(it) }
-                            userToDelete = null
+                            userToDelete?.let {
+                                viewModel.deleteUser(it)
+                                userToDelete = null
+                            }
                             showDeleteDialog = false
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text("Delete User")
                 }
             },
             dismissButton = {
@@ -222,7 +432,8 @@ fun UserSelectionScreen(navController: NavController) {
                     onClick = {
                         showDeleteDialog = false
                         userToDelete = null
-                    }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Cancel")
                 }
@@ -239,7 +450,11 @@ fun UserCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onSelect
+        onClick = onSelect,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -248,35 +463,71 @@ fun UserCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier.weight(1f)
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = user.name,
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Text(
-                    text = "Student ID: ${user.studentId}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                // Fixed date formatting
-                Text(
-                    text = "Created: ${formatDate(user.createdAt)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                // Avatar/Icon
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = "User",
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                // User details
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = user.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "ID: ${user.studentId}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Created: ${formatDate(user.createdAt)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
 
+            // Delete button
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(40.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
             ) {
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = "Delete User",
-                    tint = MaterialTheme.colorScheme.error
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -285,6 +536,6 @@ fun UserCard(
 
 // Helper function for date formatting
 private fun formatDate(timestamp: Long): String {
-    val sdf = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
+    val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     return sdf.format(Date(timestamp))
 }

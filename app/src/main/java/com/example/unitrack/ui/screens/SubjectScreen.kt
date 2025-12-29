@@ -33,7 +33,8 @@ fun SubjectScreen(navController: NavController, semesterId: Int) {
             AppDatabase.getDatabase(context).userDao(),
             AppDatabase.getDatabase(context).semesterDao(),
             AppDatabase.getDatabase(context).subjectDao(),
-                    AppDatabase.getDatabase(context).assignmentDao()
+                    AppDatabase.getDatabase(context).assignmentDao(),
+            AppDatabase.getDatabase(context).lectureDao()
         )
     }
     val viewModel: SubjectViewModel = viewModel(

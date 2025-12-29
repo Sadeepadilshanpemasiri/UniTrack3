@@ -5,20 +5,55 @@ import com.example.unitrack.data.database.*
 import com.example.unitrack.data.models.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import java.util.Calendar  // ADD THIS IMPORT
+import java.util.Calendar
 
 class GpaRepository(
     private val userDao: UserDao,
     private val semesterDao: SemesterDao,
     private val subjectDao: SubjectDao,
-    private val assignmentDao: AssignmentDao
+    private val assignmentDao: AssignmentDao,
+    private val lectureDao: LectureDao
 ) {
-    // User operations
+    // ========== LECTURE OPERATIONS ==========
+    suspend fun insertLecture(lecture: Lecture): Long = lectureDao.insert(lecture)
+    suspend fun updateLecture(lecture: Lecture) = lectureDao.update(lecture)
+    suspend fun deleteLecture(lecture: Lecture) = lectureDao.delete(lecture)
+
+    fun getLecturesBySubject(subjectId: Int): Flow<List<Lecture>> =
+        lectureDao.getLecturesBySubject(subjectId)
+
+    fun getLecturesByUser(userId: Int): Flow<List<Lecture>> =
+        lectureDao.getLecturesByUser(userId)
+
+    fun getLecturesByDay(userId: Int, dayOfWeek: Int): Flow<List<Lecture>> =
+        lectureDao.getLecturesByDay(userId, dayOfWeek)
+
+    // Use the method that actually exists in LectureDao
+    fun getLecturesWithNotificationsForUser(userId: Int): Flow<List<Lecture>> =
+        lectureDao.getLecturesWithNotificationsForUser(userId)
+
+    // Get today's lectures for a user
+    suspend fun getTodayLectures(userId: Int): List<Lecture> {
+        val calendar = Calendar.getInstance()
+        val dayOfWeek = when (calendar.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.SUNDAY -> 7
+            Calendar.MONDAY -> 1
+            Calendar.TUESDAY -> 2
+            Calendar.WEDNESDAY -> 3
+            Calendar.THURSDAY -> 4
+            Calendar.FRIDAY -> 5
+            Calendar.SATURDAY -> 6
+            else -> 1
+        }
+        return getLecturesByDay(userId, dayOfWeek).first()
+    }
+
+    // Existing User operations...
     suspend fun addUser(user: User): Long = userDao.insert(user)
     fun getAllUsers(): Flow<List<User>> = userDao.getAllUsers()
     fun getUserById(userId: Int): Flow<User?> = userDao.getUserById(userId)
 
-    // Semester operations
+    // Existing Semester operations...
     suspend fun addSemester(semester: Semester): Long = semesterDao.insert(semester)
     fun getSemestersByUser(userId: Int): Flow<List<Semester>> = semesterDao.getSemestersByUser(userId)
     suspend fun updateSemester(semester: Semester) = semesterDao.update(semester)
@@ -26,9 +61,11 @@ class GpaRepository(
     suspend fun getSemesterByDetails(userId: Int, year: Int, semesterNumber: Int): Semester? =
         semesterDao.getSemester(userId, year, semesterNumber)
 
-    // User deletion methods - FIXED
+    // Existing User deletion methods...
     suspend fun deleteUser(user: User) {
-        // First delete user's subjects (cascade)
+        // First delete user's lectures
+        deleteLecturesByUser(user.id)
+        // Then delete user's subjects (cascade)
         deleteSubjectsByUser(user.id)
         // Then delete user's semesters
         deleteSemestersByUser(user.id)
@@ -38,9 +75,18 @@ class GpaRepository(
 
     suspend fun deleteUserById(userId: Int) {
         // Delete all related data first
+        deleteLecturesByUser(userId)
         deleteSubjectsByUser(userId)
         deleteSemestersByUser(userId)
         userDao.deleteUserById(userId)
+    }
+
+    private suspend fun deleteLecturesByUser(userId: Int) {
+        // Get all lectures for this user and delete them
+        val lectures = getLecturesByUser(userId).first()
+        lectures.forEach { lecture ->
+            lectureDao.delete(lecture)
+        }
     }
 
     private suspend fun deleteSubjectsByUser(userId: Int) {
@@ -56,13 +102,16 @@ class GpaRepository(
         semesterDao.deleteSemestersByUser(userId)
     }
 
-    // Subject operations
+    // Existing Subject operations...
     suspend fun addSubject(subject: Subject): Long = subjectDao.insert(subject)
     fun getSubjectsBySemester(semesterId: Int): Flow<List<Subject>> = subjectDao.getSubjectsBySemester(semesterId)
     suspend fun updateSubject(subject: Subject) = subjectDao.update(subject)
     suspend fun deleteSubject(subject: Subject) = subjectDao.delete(subject)
 
-    // GPA Calculation - FIXED
+    // Get subjects by user
+    fun getSubjectsByUser(userId: Int): Flow<List<Subject>> = subjectDao.getSubjectsByUser(userId)
+
+    // Existing GPA Calculation...
     suspend fun calculateSemesterGPA(semesterId: Int): Double {
         val subjects = getSubjectsBySemester(semesterId).first()
         val calculatedSubjects = subjects.filter { it.isCalculated }
@@ -104,27 +153,18 @@ class GpaRepository(
         } else 0.0
     }
 
-    // Get current semester GPA (for real-time updates)
-    suspend fun getCurrentSemesterGPA(semesterId: Int): Double {
-        return calculateSemesterGPA(semesterId)
-    }
-
-    // ========== ASSIGNMENT OPERATIONS ==========
+    // Existing Assignment operations...
     suspend fun addAssignment(assignment: Assignment): Long = assignmentDao.insert(assignment)
     suspend fun updateAssignment(assignment: Assignment) = assignmentDao.update(assignment)
     suspend fun deleteAssignment(assignment: Assignment) = assignmentDao.delete(assignment)
+    fun getAssignmentsBySubject(subjectId: Int): Flow<List<Assignment>> = assignmentDao.getAssignmentsBySubject(subjectId)
+    fun getAllPendingAssignments(): Flow<List<Assignment>> = assignmentDao.getAllPendingAssignments()
+    fun getAssignmentsBySemester(semesterId: Int): Flow<List<Assignment>> = assignmentDao.getAssignmentsBySemester(semesterId)
+    fun getAssignmentsByUser(userId: Int): Flow<List<Assignment>> = assignmentDao.getAllAssignmentsByUser(userId)
+    suspend fun getAssignmentById(assignmentId: Int): Assignment? = assignmentDao.getAssignmentById(assignmentId)
 
-    fun getAssignmentsBySubject(subjectId: Int): Flow<List<Assignment>> =
-        assignmentDao.getAssignmentsBySubject(subjectId)
-
-    fun getAllPendingAssignments(): Flow<List<Assignment>> =
-        assignmentDao.getAllPendingAssignments()
-
-    fun getAssignmentsBySemester(semesterId: Int): Flow<List<Assignment>> =
-        assignmentDao.getAssignmentsBySemester(semesterId)
-
-    suspend fun getAssignmentById(assignmentId: Int): Assignment? =
-        assignmentDao.getAssignmentById(assignmentId)
+    fun getAllLecturesForUser(userId: Int): Flow<List<Lecture>> =
+        lectureDao.getAllLecturesForUser(userId)
 
     suspend fun getAssignmentsDueSoon(days: Int = 7): List<Assignment> {
         val now = System.currentTimeMillis()
@@ -171,8 +211,37 @@ class GpaRepository(
         )
     }
 
+    suspend fun getUserAssignmentStats(userId: Int): AssignmentStats {
+        val allAssignments = getAssignmentsByUser(userId).first()
+        val completed = allAssignments.count { it.status == "completed" }
+        val pending = allAssignments.count { it.status != "completed" }
+        val averageMarks = allAssignments
+            .filter { it.obtainedMarks != null }
+            .mapNotNull { it.obtainedMarks }
+            .average()
+            .toFloat()
+
+        return AssignmentStats(
+            totalAssignments = allAssignments.size,
+            completed = completed,
+            pending = pending,
+            averageMarks = if (averageMarks.isNaN()) 0f else averageMarks,
+            completionRate = if (allAssignments.isNotEmpty()) {
+                (completed.toFloat() / allAssignments.size) * 100
+            } else 0f
+        )
+    }
+
     suspend fun markOverdueAssignments() {
         assignmentDao.markOverdueAssignments(System.currentTimeMillis())
+    }
+
+    suspend fun updateAssignmentTotalMarks(assignmentId: Int, newTotalMarks: Float) {
+        val assignment = assignmentDao.getAssignmentById(assignmentId)
+        assignment?.let {
+            val updated = it.copy(totalMarks = newTotalMarks)
+            assignmentDao.update(updated)
+        }
     }
 
     data class AssignmentStats(

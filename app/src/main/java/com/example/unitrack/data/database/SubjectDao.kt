@@ -21,4 +21,13 @@ interface SubjectDao {
 
     @Query("DELETE FROM subjects WHERE semesterId = :semesterId")
     suspend fun deleteSubjectsBySemester(semesterId: Int)
+
+    // Add this function inside the SubjectDao interface
+    @Query("""
+        SELECT s.* FROM subjects s
+        JOIN semesters sem ON s.semesterId = sem.id
+        WHERE sem.userId = :userId
+        ORDER BY s.name
+    """)
+    fun getSubjectsByUser(userId: Int): Flow<List<Subject>>
 }

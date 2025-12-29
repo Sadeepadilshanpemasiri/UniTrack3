@@ -1,6 +1,8 @@
+// REPLACE THE ENTIRE SemesterScreen.kt file with this:
+
 // app/src/main/java/com/example/unitrack/ui/screens/SemesterScreen.kt
 package com.example.unitrack.ui.screens
-import androidx.compose.material3.ExperimentalMaterial3Api
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,7 +32,8 @@ fun SemesterScreen(navController: NavController, userId: Int) {
             AppDatabase.getDatabase(context).userDao(),
             AppDatabase.getDatabase(context).semesterDao(),
             AppDatabase.getDatabase(context).subjectDao(),
-            AppDatabase.getDatabase(context).assignmentDao()
+            AppDatabase.getDatabase(context).assignmentDao(),
+            AppDatabase.getDatabase(context).lectureDao()
         )
     }
     val viewModel: SemesterViewModel = viewModel(
@@ -43,6 +46,7 @@ fun SemesterScreen(navController: NavController, userId: Int) {
     var year by remember { mutableStateOf("1") }
     var semesterNumber by remember { mutableStateOf("1") }
     var semesterName by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -134,27 +138,35 @@ fun SemesterScreen(navController: NavController, userId: Int) {
                     OutlinedTextField(
                         value = year,
                         onValueChange = {
-                            if (it.toIntOrNull() in 1..4 || it.isEmpty()) {
+                            // Allow only 1-4
+                            if (it.isEmpty() || (it.toIntOrNull() in 1..4)) {
                                 year = it
                             }
                         },
                         label = { Text("Year (1-4)") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        isError = year.isNotBlank() && year.toIntOrNull() !in 1..4
                     )
+
                     Spacer(modifier = Modifier.height(8.dp))
+
                     OutlinedTextField(
                         value = semesterNumber,
                         onValueChange = {
-                            if (it == "1" || it == "2") {
+                            // Allow only 1 or 2
+                            if (it.isEmpty() || it == "1" || it == "2") {
                                 semesterNumber = it
                             }
                         },
                         label = { Text("Semester (1 or 2)") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        isError = semesterNumber.isNotBlank() && semesterNumber !in listOf("1", "2")
                     )
+
                     Spacer(modifier = Modifier.height(8.dp))
+
                     OutlinedTextField(
                         value = semesterName,
                         onValueChange = { semesterName = it },
@@ -162,32 +174,68 @@ fun SemesterScreen(navController: NavController, userId: Int) {
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+
+                    if (errorMessage.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (year.toIntOrNull() in 1..4 && (semesterNumber == "1" || semesterNumber == "2")) {
-                            coroutineScope.launch {
-                                val name = if (semesterName.isBlank()) {
-                                    "Year $year Semester $semesterNumber"
-                                } else {
-                                    semesterName
-                                }
+                        // Clear previous error
+                        errorMessage = ""
 
-                                viewModel.addSemester(
-                                    userId = userId,
-                                    year = year.toInt(),
-                                    semesterNumber = semesterNumber.toInt(),
-                                    name = name
-                                )
-                                showAddDialog = false
-                                year = "1"
-                                semesterNumber = "1"
-                                semesterName = ""
-                            }
+                        // Validate inputs
+                        val yearInt = year.toIntOrNull()
+                        val semesterInt = semesterNumber.toIntOrNull()
+
+                        if (yearInt == null || yearInt !in 1..4) {
+                            errorMessage = "Year must be between 1 and 4"
+                            return@Button
                         }
-                    }
+
+                        if (semesterInt == null || semesterInt !in 1..2) {
+                            errorMessage = "Semester must be 1 or 2"
+                            return@Button
+                        }
+
+                        coroutineScope.launch {
+                            // Check if semester already exists
+                            val existing = repository.getSemesterByDetails(userId, yearInt, semesterInt)
+                            if (existing != null) {
+                                errorMessage = "Year $yearInt Semester $semesterInt already exists"
+                                return@launch
+                            }
+
+                            // Create semester
+                            val name = if (semesterName.isBlank()) {
+                                "Year $yearInt Semester $semesterInt"
+                            } else {
+                                semesterName
+                            }
+
+                            viewModel.addSemester(
+                                userId = userId,
+                                year = yearInt,
+                                semesterNumber = semesterInt,
+                                name = name
+                            )
+
+                            // Reset and close
+                            showAddDialog = false
+                            year = "1"
+                            semesterNumber = "1"
+                            semesterName = ""
+                            errorMessage = ""
+                        }
+                    },
+                    enabled = year.isNotBlank() && semesterNumber.isNotBlank()
                 ) {
                     Text("Add")
                 }
@@ -199,6 +247,7 @@ fun SemesterScreen(navController: NavController, userId: Int) {
                         year = "1"
                         semesterNumber = "1"
                         semesterName = ""
+                        errorMessage = ""
                     }
                 ) {
                     Text("Cancel")

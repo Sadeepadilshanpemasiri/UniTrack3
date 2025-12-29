@@ -30,7 +30,8 @@ fun AddSubjectScreen(navController: NavController, semesterId: Int) {
             AppDatabase.getDatabase(context).userDao(),
             AppDatabase.getDatabase(context).semesterDao(),
             AppDatabase.getDatabase(context).subjectDao(),
-            AppDatabase.getDatabase(context).assignmentDao()
+            AppDatabase.getDatabase(context).assignmentDao(),
+            AppDatabase.getDatabase(context).lectureDao()
         )
     }
     val viewModel: SubjectViewModel = viewModel(
@@ -98,18 +99,32 @@ fun AddSubjectScreen(navController: NavController, semesterId: Int) {
                 isError = showError && subjectName.isBlank()
             )
 
+            // In AddSubjectScreen.kt, update the creditValue TextField:
+
             OutlinedTextField(
                 value = creditValue,
                 onValueChange = {
+                    // Only allow digits and limit to 1-30 credits
                     if (it.all { char -> char.isDigit() } || it.isEmpty()) {
-                        creditValue = it
-                        if (showError) showError = false
+                        val value = it.toIntOrNull() ?: 0
+                        if (value <= 30) { // Limit to reasonable credit value
+                            creditValue = it
+                            if (showError) showError = false
+                        }
                     }
                 },
-                label = { Text("Credit Value *") },
+                label = { Text("Credit Value (1-30) *") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                isError = showError && (creditValue.isBlank() || creditValue.toIntOrNull() == null)
+                isError = showError && (creditValue.isBlank() || creditValue.toIntOrNull() == null || creditValue.toInt() !in 1..30),
+                supportingText = {
+                    if (creditValue.isNotBlank()) {
+                        val value = creditValue.toIntOrNull() ?: 0
+                        if (value > 30) {
+                            Text("Max 30 credits allowed")
+                        }
+                    }
+                }
             )
 
             Text("Select Grade:", style = MaterialTheme.typography.labelMedium)

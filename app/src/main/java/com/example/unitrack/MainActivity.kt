@@ -4,6 +4,7 @@ package com.example.unitrack
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -18,13 +19,15 @@ import com.example.unitrack.ui.theme.UniTrackTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+
         setContent {
             UniTrackTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation()
+                    UniTrackApp()
                 }
             }
         }
@@ -32,68 +35,81 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppNavigation() {
+fun UniTrackApp() {
     val navController = rememberNavController()
 
     NavHost(
         navController = navController,
-        startDestination = "user_selection"
+        startDestination = "launch"  // Start with launch screen
     ) {
-        composable("user_selection") {
-            UserSelectionScreen(navController)
+        // Launch/Splash Screen
+        composable("launch") {
+            LaunchScreen(navController = navController)
         }
+
+        // User Selection
+        composable("users") {
+            UserSelectionScreen(navController = navController)
+        }
+
+        // Main Dashboard
         composable("home/{userId}") { backStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull()
-            userId?.let {
-                HomeScreen(navController = navController, userId = it)
-            }
+            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull() ?: 1
+            HomeScreen(navController = navController, userId = userId)
         }
+
+        // Semester Management
         composable("semester/{userId}") { backStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull()
-            userId?.let {
-                SemesterScreen(navController = navController, userId = it)
-            }
+            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull() ?: 1
+            SemesterScreen(navController = navController, userId = userId)
         }
+
+        // Subject Management
         composable("subjects/{semesterId}") { backStackEntry ->
-            val semesterId = backStackEntry.arguments?.getString("semesterId")?.toIntOrNull()
-            semesterId?.let {
-                SubjectScreen(navController = navController, semesterId = it)
-            }
+            val semesterId = backStackEntry.arguments?.getString("semesterId")?.toIntOrNull() ?: 1
+            SubjectScreen(navController = navController, semesterId = semesterId)
         }
+
+        // Add Subject
         composable("add_subject/{semesterId}") { backStackEntry ->
-            val semesterId = backStackEntry.arguments?.getString("semesterId")?.toIntOrNull()
-            semesterId?.let {
-                AddSubjectScreen(navController = navController, semesterId = it)
-            }
+            val semesterId = backStackEntry.arguments?.getString("semesterId")?.toIntOrNull() ?: 1
+            AddSubjectScreen(navController = navController, semesterId = semesterId)
         }
 
-        // ========== ASSIGNMENT ROUTES ==========
+        // Assignment Management
         composable("assignments/{subjectId}") { backStackEntry ->
-            val subjectId = backStackEntry.arguments?.getString("subjectId")?.toIntOrNull()
-            subjectId?.let {
-                AssignmentScreen(navController = navController, subjectId = it)
-            }
+            val subjectId = backStackEntry.arguments?.getString("subjectId")?.toIntOrNull() ?: 1
+            AssignmentScreen(navController = navController, subjectId = subjectId)
         }
 
+        // Add Assignment
         composable("add_assignment/{subjectId}") { backStackEntry ->
-            val subjectId = backStackEntry.arguments?.getString("subjectId")?.toIntOrNull()
-            subjectId?.let {
-                AddAssignmentScreen(navController = navController, subjectId = it)
-            }
+            val subjectId = backStackEntry.arguments?.getString("subjectId")?.toIntOrNull() ?: 1
+            AddAssignmentScreen(navController = navController, subjectId = subjectId)
         }
 
+        // Assignment Detail
         composable("assignment_detail/{assignmentId}") { backStackEntry ->
-            val assignmentId = backStackEntry.arguments?.getString("assignmentId")?.toIntOrNull()
-            assignmentId?.let {
-                AssignmentDetailScreen(navController = navController, assignmentId = it)
-            }
+            val assignmentId = backStackEntry.arguments?.getString("assignmentId")?.toIntOrNull() ?: 1
+            AssignmentDetailScreen(navController = navController, assignmentId = assignmentId)
         }
 
+        // Assignment Dashboard
         composable("assignment_dashboard/{userId}") { backStackEntry ->
-            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull()
-            userId?.let {
-                AssignmentDashboardScreen(navController = navController, userId = it)
-            }
+            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull() ?: 1
+            AssignmentDashboardScreen(navController = navController, userId = userId)
+        }
+
+        // Timetable
+        composable("timetable/{userId}") { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull() ?: 1
+            TimetableScreen(navController = navController, userId = userId)
+        }
+
+        // Add Lecture
+        composable("add_lecture/{dayOfWeek}") { backStackEntry ->
+            val dayOfWeek = backStackEntry.arguments?.getString("dayOfWeek")?.toIntOrNull() ?: 1
+            AddLectureScreen(navController = navController, dayOfWeek = dayOfWeek)
         }
     }
 }
