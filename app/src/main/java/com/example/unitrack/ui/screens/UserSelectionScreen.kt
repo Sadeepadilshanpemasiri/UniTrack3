@@ -476,7 +476,8 @@ fun UserCard(
                     modifier = Modifier.size(48.dp)
                 ) {
                     Box(
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         Icon(
                             Icons.Default.Person,

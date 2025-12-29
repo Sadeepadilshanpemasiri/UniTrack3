@@ -5,11 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Assignment  // ADD THIS IMPORT
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,8 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.example.unitrack.data.database.AppDatabase
-import com.example.unitrack.data.repositories.GpaRepository
+import com.example.unitrack.data.RepositoryFactory
 import com.example.unitrack.ui.viewmodels.SubjectViewModel
 import com.example.unitrack.ui.viewmodels.SubjectViewModelFactory
 import kotlinx.coroutines.launch
@@ -28,15 +23,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SubjectScreen(navController: NavController, semesterId: Int) {
     val context = LocalContext.current
-    val repository = remember {
-        GpaRepository(
-            AppDatabase.getDatabase(context).userDao(),
-            AppDatabase.getDatabase(context).semesterDao(),
-            AppDatabase.getDatabase(context).subjectDao(),
-                    AppDatabase.getDatabase(context).assignmentDao(),
-            AppDatabase.getDatabase(context).lectureDao()
-        )
-    }
+    val repository = remember { RepositoryFactory.getRepository(context) }
     val viewModel: SubjectViewModel = viewModel(
         factory = SubjectViewModelFactory(repository)
     )
@@ -93,89 +80,92 @@ fun SubjectScreen(navController: NavController, semesterId: Int) {
             }
         }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // GPA Summary Card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Row(
+            item {
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
                 ) {
-                    Column {
-                        Text(
-                            text = "Semester GPA",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                        Text(
-                            text = currentGPA.toString(),
-                            style = MaterialTheme.typography.displayMedium
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            text = "Total Subjects",
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                        Text(
-                            text = subjects.size.toString(),
-                            style = MaterialTheme.typography.displayMedium
-                        )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Semester GPA",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            Text(
+                                text = currentGPA.toString(),
+                                style = MaterialTheme.typography.displayMedium
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "Total Subjects",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            Text(
+                                text = subjects.size.toString(),
+                                style = MaterialTheme.typography.displayMedium
+                            )
+                        }
                     }
                 }
             }
 
             if (subjects.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "No subjects added yet",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            text = "Tap + button to add your first subject",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "No subjects added yet",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "Tap + button to add your first subject",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(subjects) { subject ->
-                        SubjectCard(
-                            subject = subject,
-                            onDeleteClick = {
-                                subjectToDelete = subject
-                                showDeleteDialog = true
-                            },
-                            onEditClick = {
-                                // TODO: Implement edit functionality
-                            },
-                            navController = navController  // PASS NAVCONTROLLER HERE
-                        )
-                    }
+                items(subjects) { subject ->
+                    SubjectCard(
+                        subject = subject,
+                        onDeleteClick = {
+                            subjectToDelete = subject
+                            showDeleteDialog = true
+                        },
+                        onEditClick = {
+                            // TODO: Implement edit functionality
+                        },
+                        navController = navController
+                    )
                 }
+            }
+
+            // Add bottom padding
+            item {
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
@@ -220,10 +210,12 @@ fun SubjectCard(
     subject: com.example.unitrack.data.models.Subject,
     onDeleteClick: () -> Unit,
     onEditClick: () -> Unit,
-    navController: NavController  // ADD THIS PARAMETER
+    navController: NavController
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -293,7 +285,7 @@ fun SubjectCard(
                 )
             }
 
-            // ADD THE ASSIGNMENTS BUTTON HERE
+            // Assignments button
             Button(
                 onClick = {
                     navController.navigate("assignments/${subject.id}")

@@ -9,7 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class LectureViewModel(private val repository: GpaRepository) : ViewModel() {
@@ -21,10 +20,6 @@ class LectureViewModel(private val repository: GpaRepository) : ViewModel() {
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-
-    init {
-        loadLectures(userId = 1)
-    }
 
     fun loadLectures(userId: Int) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -54,7 +49,12 @@ class LectureViewModel(private val repository: GpaRepository) : ViewModel() {
         }
     }
 
-    fun refresh(userId: Int) {
-        loadLectures(userId)
+    suspend fun deleteLecture(lecture: Lecture) {
+        try {
+            repository.deleteLecture(lecture)
+            loadLectures(lecture.userId)
+        } catch (e: Exception) {
+            _errorMessage.value = "Failed to delete lecture: ${e.message}"
+        }
     }
 }

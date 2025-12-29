@@ -76,13 +76,7 @@ fun UniTrackApp() {
             AddSubjectScreen(navController = navController, semesterId = semesterId)
         }
 
-        // Assignment Management
-        composable("assignments/{subjectId}") { backStackEntry ->
-            val subjectId = backStackEntry.arguments?.getString("subjectId")?.toIntOrNull() ?: 1
-            AssignmentScreen(navController = navController, subjectId = subjectId)
-        }
-
-        // Add Assignment
+        // Add Assignment (corrected from AssignmentScreen)
         composable("add_assignment/{subjectId}") { backStackEntry ->
             val subjectId = backStackEntry.arguments?.getString("subjectId")?.toIntOrNull() ?: 1
             AddAssignmentScreen(navController = navController, subjectId = subjectId)

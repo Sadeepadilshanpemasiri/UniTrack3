@@ -28,7 +28,6 @@ class GpaRepository(
     fun getLecturesByDay(userId: Int, dayOfWeek: Int): Flow<List<Lecture>> =
         lectureDao.getLecturesByDay(userId, dayOfWeek)
 
-    // Use the method that actually exists in LectureDao
     fun getLecturesWithNotificationsForUser(userId: Int): Flow<List<Lecture>> =
         lectureDao.getLecturesWithNotificationsForUser(userId)
 
